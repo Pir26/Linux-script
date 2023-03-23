@@ -37,6 +37,27 @@ BACKUP_FILE_SUFFIX=".bak"
 # ssh minimal version (for R15 ANSSI recommendation)
 SSH_MINIMAL_VERSION="6.3"
 
+# expected configuration
+EXPECTED_CONFIGURATION="
+Protocol 2 					# R1 : Seule la version 2 du protocole SSH doit être autorisée.
+StrictHostKeyChecking ask 	# R6 : assurer de la légitimité du serveur contacté.
+StrictModes yes 			# R14 : l’AES-128 mode CBC doit être utilisé.
+Ciphers aes256-ctr,aes192-ctr,aes128-ctr	# R15 : l’algorithme de chiffrement et l’intégrité sont imposés.
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
+MACs hmac-sha2-512,hmac-sha2-256,hmac-sha1
+UsePrivilegeSeparation yesandbox # R16 : séparation de privilèges. Si "sandbox" n’est pas utilisable, mettre "yes" en remplacement
+PermitEmptyPasswords no # R18 : moindre privilèges
+MaxAuthTries 3 				# Restriction des tentatives de connexion
+LoginGraceTime 30 			# Temporisation des tentatives de connexion
+PermitRootLogin no 			# R21 : chaque utilisateur doit disposer de son propre compte, unique, incessible.
+PrintLastLog yes # R21
+PermitUserEnvironment no 	# R23 : l’altération de l’environnement par un utilisateur doit être bloquée par défaut.
+AllowTcpForwarding no 		# R27 : sauf besoin dûment justifié, toute fonctionnalité de redirections de flux doit être désactivée.
+X11Forwarding no 			# R28 : La redirection X11 doit être désactivée sur le serveur.
+ForwardX11Trusted no 		# R28 : La redirection X11 doit être désactivée sur le serveur.
+"
+
+
 ####################
 # Return the location of ssh_config file given by user. Combined with default location when missed.
 # Input : no argument or one argument with one path name only, or one file name only or a full path name
@@ -76,7 +97,49 @@ fi
 return "${sshVersion}"
 }
 
+####################
+# Create an array from string.
+# Input : no argument or one argument with one path name only, or one file name only or a full path name
+# Output : array
+####################
+extractArray()
+{
+    declare -A instructionArray
+    #IFS=$"\n"
+
+    # regex to extract each line of the data given as an input
+    regex="([[:alnum:]]+)[[:blank:]]+([[:alnum:]]+).*(#.*)"
+
+    # read each line 
+    dataToRead="($@)"
+    readarray  -t arr <<< "${dataToRead}"
+    i=0
+    for line in "${arr[@]}";
+        do
+            #echo "$line"
+            if [[ "${line}" =~ $regex ]]; then
+                capturedInstruction="${BASH_REMATCH[1]}"
+                #capturedData="${BASH_REMATCH[2]}"
+                #capturedComment="${BASH_REMATCH[3]}"
+                instructionArray[$((i)),0]="${BASH_REMATCH[1]}"
+                instructionArray[$((i)),1]="${BASH_REMATCH[2]}"
+                instructionArray[$((i)),2]="${BASH_REMATCH[3]}"
+                #echo $capturedInstruction
+                #echo "$((i))---${instructionArray[$((i)),0]}"
+                i=$((i+1))
+            fi
+        done
+
+}
+
 main() { 
+# prepare an array with the expected configuration
+#IFS=$"\n"
+extractArray "${EXPECTED_CONFIGURATION[@]}"
+}
+
+main2()
+{
 # check ssh.service status
 
 # search for ssh config file 
@@ -87,7 +150,12 @@ if [ -f "${fullsshFileName}" ]; then
     if (touch "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"); then
         # browse ssh config file and write temporary file
         while IFS= read -r ligne; do
+            
+            # check if read line is like  
+            
             echo "$ligne" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"
+
+        
         done < "$fullsshFileName"
 
         # backup original ssh config file 
