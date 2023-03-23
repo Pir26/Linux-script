@@ -6,13 +6,13 @@
 #
 # Script : strong_ssh_config.sh
 #
-# Description : modify ssh_config file of linux machine againts the (open)ssh ANSSI recommendations
+# Description : modify sshd_config file of linux server againts the (open) ssh ANSSI recommendations
 #               https://www.ssi.gouv.fr/uploads/2014/01/NT_OpenSSH.pdf
 #
 # Input :
-#   no argument = the "/etc/ssh/ssh_config" file will be modified
-#   relative or absolut path = "ssh_config" file will be modified in this given path
-#   full path and file name of ssh_config file = the given file of this given path will be modified
+#   no argument = the "/etc/ssh/sshd_config" file will be modified
+#   relative or absolut path = "sshd_config" file will be modified in this given path
+#   full path and file name of sshd_config file = the given file of this given path will be modified
 #
 # Output : modification of the ssh_config file with the ANSSI recommendation
 #
@@ -25,9 +25,15 @@
 ####################
 
 # default path name where to get ssh_config file
-defaulPathName="/etc/ssh/"
+DEFAULT_PATH_NAME="/etc/ssh/"
 # default ssh_config file name
-defaultFileName="ssh_config"
+DEFAULT_FILE_NAME="sshd_config"
+
+# suffixe for temporary ssh config file
+TEMPORARY_FILE_SUFFIX=".tmp"
+# suffixe for backup ssh config file
+BACKUP_FILE_SUFFIX=".bak"
+
 # ssh minimal version (for R15 ANSSI recommendation)
 SSH_MINIMAL_VERSION="6.3"
 
@@ -41,11 +47,11 @@ getfullsshFileName()
 # construct full path file name depending on the argument
 local fullsshFileName=""
 if ! [[ $1 ]]; then
-    fullsshFileName="${defaulPathName}${defaultFileName}"
-elif [ -d "${1}" ]; then
-    fullsshFileName="${1}${defaultFileName}"
+    fullsshFileName="${DEFAULT_PATH_NAME}${DEFAULT_FILE_NAME}"
+elif [ -d "$1" ]; then
+    fullsshFileName="$1${DEFAULT_FILE_NAME}"
 else
-    fullsshFileName="${1}"
+    fullsshFileName="$1"
 fi
 echo "${fullsshFileName}"
 }
@@ -74,19 +80,43 @@ main() {
 # check ssh.service status
 
 # search for ssh config file 
-fullsshFileName="$(getfullsshFileName "${1}")"
+fullsshFileName="$(getfullsshFileName "$1")"
 if [ -f "${fullsshFileName}" ]; then
     echo "info : traitement du fichier ${fullsshFileName}..."
-
-    # go through ssh config file
-    for line in ${fullsshFileName}; do
-        :
-    done
+    # work with temporary file
+    if (touch "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}" > /dev/null 2>&1); then
+        # go through ssh config file
+        for line in ${fullsshFileName}; do
+            echo "info : traitement du fichier"
+        done
+        # backup original ssh config file 
+        echo "info : traitement du fichier ${fullsshFileName} terminé."
+        echo "info : sauvegarde du fichier original ${fullsshFileName} en '${fullsshFileName}${BACKUP_FILE_SUFFIX}'"
+        if (mv "${fullsshFileName}" "${fullsshFileName}${BACKUP_FILE_SUFFIX}" > /dev/null 2>&1); then
+            # rename temporary working file
+            echo "info : récupération de la configuration traitée."
+            if (mv "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}" "${fullsshFileName}" > /dev/null 2>&1); then
+                echo "info : redémarage du service"
+            else
+                echo "ERREUR : le fichier temporaire '${fullsshFileName}${TEMPORARY_FILE_SUFFIX}' n'a pas pu être transféré vers le fichier final ${fullsshFileName}."
+                # retourne sur la configuration originale
+                if ! (mv "${fullsshFileName}${BACKUP_FILE_SUFFIX}" "${fullsshFileName}" > /dev/null 2>&1); then
+                    echo "ERROR : le fichier de sauvegarde '${fullsshFileName}${BACKUP_FILE_SUFFIX}' n'a pas pu être récupéré."
+                    echo "ERROR : il faut renommer ou copier le fichier de sauvegarde '${fullsshFileName}${BACKUP_FILE_SUFFIX}' vers le fichier initial '${fullsshFileName}'"
+                fi
+            fi
+        else
+            echo "Le fichier de sauvegarde '${fullsshFileName}${BACKUP_FILE_SUFFIX}' n'a pas pu être créé."
+        fi
+    else
+        echo "Le fichier temporaire de travail '${fullsshFileName}${TEMPORARY_FILE_SUFFIX}' n'a pas pu être créé."
+    fi
 else
     echo "Le fichier ${fullsshFileName} n'existe pas."
 fi
 
 
-
 # restart ssh.service
 }
+
+main "${1}"
