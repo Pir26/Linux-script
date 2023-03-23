@@ -84,35 +84,38 @@ fullsshFileName="$(getfullsshFileName "$1")"
 if [ -f "${fullsshFileName}" ]; then
     echo "info : traitement du fichier ${fullsshFileName}..."
     # work with temporary file
-    if (touch "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}" > /dev/null 2>&1); then
-        # go through ssh config file
-        for line in ${fullsshFileName}; do
-            echo "info : traitement du fichier"
-        done
+    if (touch "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"); then
+        # browse ssh config file and write temporary file
+        while IFS= read -r ligne; do
+            echo "$ligne" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"
+        done < "$fullsshFileName"
+
         # backup original ssh config file 
         echo "info : traitement du fichier ${fullsshFileName} terminé."
         echo "info : sauvegarde du fichier original ${fullsshFileName} en '${fullsshFileName}${BACKUP_FILE_SUFFIX}'"
-        if (mv "${fullsshFileName}" "${fullsshFileName}${BACKUP_FILE_SUFFIX}" > /dev/null 2>&1); then
+        if (mv "${fullsshFileName}" "${fullsshFileName}${BACKUP_FILE_SUFFIX}"); then
             # rename temporary working file
+
+            # NE PAS OUBLIER DE REMETTRE LES DROITS
             echo "info : récupération de la configuration traitée."
-            if (mv "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}" "${fullsshFileName}" > /dev/null 2>&1); then
+            if (mv "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}" "${fullsshFileName}"); then
                 echo "info : redémarage du service"
             else
                 echo "ERREUR : le fichier temporaire '${fullsshFileName}${TEMPORARY_FILE_SUFFIX}' n'a pas pu être transféré vers le fichier final ${fullsshFileName}."
-                # retourne sur la configuration originale
-                if ! (mv "${fullsshFileName}${BACKUP_FILE_SUFFIX}" "${fullsshFileName}" > /dev/null 2>&1); then
-                    echo "ERROR : le fichier de sauvegarde '${fullsshFileName}${BACKUP_FILE_SUFFIX}' n'a pas pu être récupéré."
-                    echo "ERROR : il faut renommer ou copier le fichier de sauvegarde '${fullsshFileName}${BACKUP_FILE_SUFFIX}' vers le fichier initial '${fullsshFileName}'"
+                # come back with original version
+                if ! (mv "${fullsshFileName}${BACKUP_FILE_SUFFIX}" "${fullsshFileName}"); then
+                    echo "ERREUR : le fichier de sauvegarde '${fullsshFileName}${BACKUP_FILE_SUFFIX}' n'a pas pu être récupéré."
+                    echo "ERREUR : il faut renommer ou copier le fichier de sauvegarde '${fullsshFileName}${BACKUP_FILE_SUFFIX}' vers le fichier initial '${fullsshFileName}'"
                 fi
             fi
         else
-            echo "Le fichier de sauvegarde '${fullsshFileName}${BACKUP_FILE_SUFFIX}' n'a pas pu être créé."
+            echo "ERREUR : le fichier de sauvegarde '${fullsshFileName}${BACKUP_FILE_SUFFIX}' n'a pas pu être créé."
         fi
     else
-        echo "Le fichier temporaire de travail '${fullsshFileName}${TEMPORARY_FILE_SUFFIX}' n'a pas pu être créé."
+        echo "ERREUR : le fichier temporaire de travail '${fullsshFileName}${TEMPORARY_FILE_SUFFIX}' n'a pas pu être créé."
     fi
 else
-    echo "Le fichier ${fullsshFileName} n'existe pas."
+    echo "ERREUR : le fichier ${fullsshFileName} n'existe pas."
 fi
 
 
