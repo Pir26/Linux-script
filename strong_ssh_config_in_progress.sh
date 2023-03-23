@@ -37,25 +37,28 @@ BACKUP_FILE_SUFFIX=".bak"
 # ssh minimal version (for R15 ANSSI recommendation)
 SSH_MINIMAL_VERSION="6.3"
 
-# expected configuration
-EXPECTED_CONFIGURATION="
+# expected configuration in string format
+EXPECTED_CONFIGURATION_STR="
 Protocol 2 					# R1 : Seule la version 2 du protocole SSH doit être autorisée.
 StrictHostKeyChecking ask 	# R6 : assurer de la légitimité du serveur contacté.
 StrictModes yes 			# R14 : l’AES-128 mode CBC doit être utilisé.
 Ciphers aes256-ctr,aes192-ctr,aes128-ctr	# R15 : l’algorithme de chiffrement et l’intégrité sont imposés.
-MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
-MACs hmac-sha2-512,hmac-sha2-256,hmac-sha1
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com #
+# MACs hmac-sha2-512,hmac-sha2-256,hmac-sha1
 UsePrivilegeSeparation yesandbox # R16 : séparation de privilèges. Si "sandbox" n’est pas utilisable, mettre "yes" en remplacement
 PermitEmptyPasswords no # R18 : moindre privilèges
 MaxAuthTries 3 				# Restriction des tentatives de connexion
 LoginGraceTime 30 			# Temporisation des tentatives de connexion
 PermitRootLogin no 			# R21 : chaque utilisateur doit disposer de son propre compte, unique, incessible.
-PrintLastLog yes # R21
+PrintLastLog yes            # R21
 PermitUserEnvironment no 	# R23 : l’altération de l’environnement par un utilisateur doit être bloquée par défaut.
 AllowTcpForwarding no 		# R27 : sauf besoin dûment justifié, toute fonctionnalité de redirections de flux doit être désactivée.
 X11Forwarding no 			# R28 : La redirection X11 doit être désactivée sur le serveur.
 ForwardX11Trusted no 		# R28 : La redirection X11 doit être désactivée sur le serveur.
 "
+# EXPECTED_CONFIGURATION_STR will be returned in array format
+# each line of the array will be an array of 4 data : [instruction] [data] [# comment] [implemented in the configuration]
+EXPECTED_CONFIGURATION_ARRAY=()
 
 
 ####################
@@ -104,42 +107,32 @@ return "${sshVersion}"
 ####################
 extractArray()
 {
-    declare -A instructionArray
+    #local instructionArray=()
     #IFS=$"\n"
 
     # regex to extract each line of the data given as an input
-    regex="([[:alnum:]]+)[[:blank:]]+([[:alnum:]]+).*(#.*)"
+    regex="(^[[:alnum:]]+)[[:blank:]]+([0-9a-zA-Z\_\:\\,\@\.\-]+).*(#.*)?"
 
     # read each line 
-    dataToRead="($@)"
+    dataToRead=("$@")
     readarray  -t arr <<< "${dataToRead}"
     i=0
     for line in "${arr[@]}";
         do
-            #echo "$line"
             if [[ "${line}" =~ $regex ]]; then
                 capturedInstruction="${BASH_REMATCH[1]}"
-                #capturedData="${BASH_REMATCH[2]}"
-                #capturedComment="${BASH_REMATCH[3]}"
-                instructionArray[$((i)),0]="${BASH_REMATCH[1]}"
-                instructionArray[$((i)),1]="${BASH_REMATCH[2]}"
-                instructionArray[$((i)),2]="${BASH_REMATCH[3]}"
-                #echo $capturedInstruction
-                #echo "$((i))---${instructionArray[$((i)),0]}"
+                capturedData="${BASH_REMATCH[2]}"
+                echo "${capturedInstruction} ${capturedData}"
+                EXPECTED_CONFIGURATION_ARRAY[$((i))]="${BASH_REMATCH[1]};${BASH_REMATCH[2]};${BASH_REMATCH[3]};NOT IMPLEMENTED"
                 i=$((i+1))
             fi
         done
-
 }
 
 main() { 
 # prepare an array with the expected configuration
-#IFS=$"\n"
-extractArray "${EXPECTED_CONFIGURATION[@]}"
-}
+extractArray "${EXPECTED_CONFIGURATION_STR[@]}"
 
-main2()
-{
 # check ssh.service status
 
 # search for ssh config file 
@@ -147,16 +140,77 @@ fullsshFileName="$(getfullsshFileName "$1")"
 if [ -f "${fullsshFileName}" ]; then
     echo "info : traitement du fichier ${fullsshFileName}..."
     # work with temporary file
-    if (touch "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"); then
+    if (rm -R "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"; touch "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"); then
+        # keep safe a list of expected instruction found
+        listOfExpectedInstrictionFound=";"
         # browse ssh config file and write temporary file
-        while IFS= read -r ligne; do
-            
-            # check if read line is like  
-            
-            echo "$ligne" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"
-
-        
+        while IFS= read -r line; do
+            # keep safe if an expected instruction is found for this line
+            expectedInstructionFound=False
+            # split read line in the config file in order to check if an instruction is present 
+            regex="^(#?) ?([[:alnum:]]+)[[:blank:]]+([0-9a-zA-Z\_\:\\,\@\.\-]+)[[:blank:]]*$"
+            if [[ "${line}" =~ $regex ]]; then
+                #echo $line
+                capturedComment="${BASH_REMATCH[1]}"
+                capturedInstruction="${BASH_REMATCH[2]}"
+                capturedData="${BASH_REMATCH[3]}"
+                # if an instruction is present, check captured expression against the array of expected instructions
+                for loop in "${EXPECTED_CONFIGURATION_ARRAY[@]}"; do
+                    expectedRegex="^([[:alnum:]]+);([0-9a-zA-Z\_\:\\,\@\.\-]+);(.*);(.*)$"
+                    if [[ "${loop}" =~ $expectedRegex ]]; then
+                        expectedInstruction="${BASH_REMATCH[1]}"
+                        expectedData="${BASH_REMATCH[2]}"
+                        # expectedComment="${BASH_REMATCH[3]}"
+                        # expectedStatus="${BASH_REMATCH[4]}"
+                        # keep safe if instruction is expected or not
+                        if [[ "${capturedInstruction}" == "${expectedInstruction}" ]]; then
+                            expectedInstructionFound=True
+                            listOfExpectedInstrictionFound="${listOfExpectedInstrictionFound};${capturedInstruction}"
+                            # captured instruction in configuration file is same as the expected one's
+                            if [[ "${capturedData}" == "${expectedData}" ]]; then
+                                # captured data is same as the expected one's
+                                if [ ${capturedComment} ]; then
+                                    # Uncomment the instruction
+                                    echo "# ###uncommented by script###" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"
+                                    echo "${capturedInstruction} ${capturedData}" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"
+                                fi
+                            else
+                                # captured data is not the same as the expected one's
+                                if ! [ ${capturedComment} ]; then
+                                    # captured instruction is not commented - begining with '#'' character )
+                                    # comment the original instruction and add the new one
+                                    echo "# ###commented and modified by script###" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"
+                                    echo "#${capturedInstruction} ${capturedData}" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"
+                                else
+                                    echo "# ###modified by script###" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"
+                                fi
+                                # add the expected instruction
+                                echo "${expectedInstruction} ${expectedData}" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"
+                            fi
+                        fi
+                    fi
+                done
+            fi
+            if [ ${expectedInstructionFound} == "False" ]; then
+                # not an expected instruction - just copy the line
+                echo "${line}" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}"
+            fi
         done < "$fullsshFileName"
+
+        # at the end of the file, check if some configuration remains expected but not found in the original file
+        echo "# ###modified by script###" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}" 
+        for loop in "${EXPECTED_CONFIGURATION_ARRAY[@]}"; do
+            expectedRegex="^([[:alnum:]]+);([0-9a-zA-Z\_\:\\,\@\.\-]+);(.*);(.*)$"
+            if [[ "${loop}" =~ $expectedRegex ]]; then
+                expectedInstruction="${BASH_REMATCH[1]}"
+                expectedData="${BASH_REMATCH[2]}"
+                if ! ( echo "${listOfExpectedInstrictionFound}" | grep ";${expectedInstruction};" > /dev/null 2>&1 ) ; then
+                    # add expected instruction
+                    echo "Added ${expectedInstruction} ${expectedData}"
+                    echo "${expectedInstruction} ${expectedData}" >> "${fullsshFileName}${TEMPORARY_FILE_SUFFIX}" 
+                fi
+            fi
+        done
 
         # backup original ssh config file 
         echo "info : traitement du fichier ${fullsshFileName} terminé."
